@@ -16,7 +16,7 @@ streamlit run streamlit_app.py
 Public dashboard URL:
 
 ```text
-Add your Streamlit Community Cloud URL here after deployment.
+https://btc-forecaster-bej4duce4cewtex5rgdhpo.streamlit.app/
 ```
 
 ## Project Structure
