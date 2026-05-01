@@ -13,6 +13,8 @@ from src.gbm_model import GBMConfig, predict_next_hour
 
 
 DEFAULT_RESULTS_PATH = Path("results/backtest_results.jsonl")
+ROOT_RESULTS_PATH = Path("backtest_results.jsonl")
+DEFAULT_TARGET_PREDICTIONS = 720
 
 
 def write_jsonl(path: str | Path, records: list[dict[str, object]]) -> None:
@@ -28,24 +30,28 @@ def run_backtest(
     data: pd.DataFrame | None = None,
     config: GBMConfig | None = None,
     output_path: str | Path = DEFAULT_RESULTS_PATH,
+    root_output_path: str | Path | None = ROOT_RESULTS_PATH,
     min_train_bars: int | None = None,
+    target_predictions: int = DEFAULT_TARGET_PREDICTIONS,
     persist: bool = True,
 ) -> tuple[pd.DataFrame, dict[str, float]]:
-    """Run a rolling backtest over roughly 720 hourly bars.
+    """Run a rolling backtest over roughly 720 scored hourly predictions.
 
     At each step i, the model sees rows up to and including i, predicts the
     next close, then compares against row i+1. This prevents lookahead bias.
     """
     cfg = config or GBMConfig()
-    frame = data.copy() if data is not None else fetch_btcusdt_klines(limit=720)
+    train_bars = min_train_bars or max(cfg.volatility_window + 1, cfg.min_returns + 1)
+    fetch_limit = target_predictions + train_bars
+    frame = data.copy() if data is not None else fetch_btcusdt_klines(limit=fetch_limit)
     frame = frame.sort_values("open_time").reset_index(drop=True)
 
-    train_bars = min_train_bars or max(cfg.volatility_window + 1, cfg.min_returns + 1)
     if len(frame) <= train_bars:
         raise ValueError(f"Need more than {train_bars} bars, got {len(frame)}")
 
     records: list[dict[str, object]] = []
-    for i in range(train_bars - 1, len(frame) - 1):
+    first_prediction_index = max(train_bars - 1, len(frame) - target_predictions - 1)
+    for i in range(first_prediction_index, len(frame) - 1):
         history = frame.iloc[: i + 1]
         target = frame.iloc[i + 1]
         forecast = predict_next_hour(history, cfg)
@@ -70,6 +76,8 @@ def run_backtest(
     metrics = evaluate(results, confidence=cfg.confidence)
     if persist:
         write_jsonl(output_path, records)
+        if root_output_path is not None and Path(root_output_path) != Path(output_path):
+            write_jsonl(root_output_path, records)
     return results, metrics
 
 

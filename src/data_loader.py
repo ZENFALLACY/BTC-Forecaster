@@ -10,6 +10,7 @@ import requests
 
 
 BINANCE_KLINES_URL = "https://data-api.binance.vision/api/v3/klines"
+BINANCE_MAX_LIMIT = 1000
 KLINE_COLUMNS = [
     "open_time",
     "open",
@@ -35,9 +36,15 @@ def fetch_btcusdt_klines(
     symbol: str = "BTCUSDT",
     interval: str = "1h",
     timeout: float = 15.0,
+    closed_only: bool = True,
 ) -> pd.DataFrame:
-    """Fetch hourly BTCUSDT bars from Binance Vision."""
-    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    """Fetch hourly BTCUSDT bars from Binance Vision.
+
+    Binance may include the currently forming candle. By default this returns
+    only candles whose close time has already passed.
+    """
+    request_limit = min(limit + 1 if closed_only else limit, BINANCE_MAX_LIMIT)
+    params = {"symbol": symbol, "interval": interval, "limit": request_limit}
     try:
         response = requests.get(BINANCE_KLINES_URL, params=params, timeout=timeout)
         response.raise_for_status()
@@ -49,7 +56,10 @@ def fetch_btcusdt_klines(
 
     if not isinstance(payload, list) or not payload:
         raise DataLoadError("Binance returned no kline rows")
-    return parse_klines(payload)
+    frame = parse_klines(payload)
+    if closed_only:
+        frame = only_closed_bars(frame)
+    return frame.tail(limit).reset_index(drop=True)
 
 
 def parse_klines(payload: list[list[Any]]) -> pd.DataFrame:
@@ -75,6 +85,12 @@ def parse_klines(payload: list[list[Any]]) -> pd.DataFrame:
     frame = frame.dropna(subset=["open", "high", "low", "close"])
     frame = frame.sort_values("open_time").drop_duplicates("open_time").reset_index(drop=True)
     return frame
+
+
+def only_closed_bars(data: pd.DataFrame, now: pd.Timestamp | None = None) -> pd.DataFrame:
+    """Filter out any candle that has not closed yet."""
+    current_time = now or pd.Timestamp.now(tz="UTC")
+    return data.loc[data["close_time"] <= current_time].reset_index(drop=True)
 
 
 def add_log_returns(data: pd.DataFrame) -> pd.DataFrame:

@@ -24,6 +24,7 @@ dashboard/
   app.py               # Streamlit dashboard
 results/
   backtest_results.jsonl
+backtest_results.jsonl # root copy for challenge compatibility
 requirements.txt
 streamlit_app.py       # Streamlit entrypoint
 ```
@@ -70,11 +71,17 @@ pip install -r requirements.txt
 python -m src.backtest
 ```
 
-This fetches about 720 BTCUSDT 1-hour bars and writes:
+This fetches enough closed BTCUSDT 1-hour bars to provide warmup history plus
+720 scored predictions. It writes:
 
 ```text
 results/backtest_results.jsonl
+backtest_results.jsonl
 ```
+
+The root-level copy is included because the challenge brief asks for a file
+named exactly `backtest_results.jsonl`; the `results/` copy keeps generated
+artifacts organized.
 
 Each JSONL row includes the required challenge fields:
 
@@ -90,10 +97,10 @@ volatility, and target timestamp.
 Latest real Binance-backed run:
 
 ```text
-n_predictions: 669
-coverage_95: 0.934230
-average_width: 1133.051176
-winkler_score: 1761.448365
+n_predictions: 720
+coverage_95: 0.937500
+average_width: 1155.770058
+winkler_score: 1770.404514
 ```
 
 These numbers are computed dynamically by `src.evaluation.evaluate()` from the
@@ -108,11 +115,12 @@ streamlit run streamlit_app.py
 
 The dashboard:
 
-- fetches the latest BTCUSDT hourly bars
+- fetches the latest closed BTCUSDT hourly bars
 - uses the last 500 bars for the live forecast
 - displays current price and predicted 95% range
 - shows backtest coverage, average width, and Winkler score
-- plots the last 50 bars with the next-hour prediction ribbon
+- plots the last 50 bars with candlesticks, close-price line, and next-hour
+  prediction ribbon
 
 ## Tuning
 
@@ -129,5 +137,4 @@ intervals are probably too wide.
 
 ## Notes
 
-The older `btc_forecaster/` package is retained for compatibility, but the
-challenge-ready implementation is in `src/` and `dashboard/`.
+All challenge code lives in `src/` and `dashboard/`.

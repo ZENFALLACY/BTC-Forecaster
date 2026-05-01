@@ -65,6 +65,15 @@ def build_chart(data: pd.DataFrame, prediction: Prediction) -> go.Figure:
     )
     fig.add_trace(
         go.Scatter(
+            x=chart_data["close_time"],
+            y=chart_data["close"],
+            mode="lines",
+            line=dict(color="#111827", width=1.5),
+            name="Close price",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
             x=[last_time, next_time, next_time, last_time],
             y=[
                 prediction.predicted_lower,
@@ -111,7 +120,7 @@ def main() -> None:
         use_ewma = st.toggle("EWMA volatility", value=False)
 
     try:
-        data = load_data(limit=720)
+        data = load_data(limit=800)
     except DataLoadError as exc:
         st.error(str(exc))
         st.stop()
