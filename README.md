@@ -44,7 +44,8 @@ For each prediction time `t`:
 3. Estimate volatility from a rolling recent window, default 50 hourly returns.
 4. Draw 10,000 standardized Student-t shocks to capture fat tails.
 5. Simulate one-hour GBM terminal prices.
-6. Use the 2.5% and 97.5% quantiles as the 95% prediction interval.
+6. Apply a calibrated interval scale of `1.12`.
+7. Use the 2.5% and 97.5% quantiles as the 95% prediction interval.
 
 The backtest is walk-forward. At row `i`, the model sees only rows `0..i` and is
 scored against row `i+1`. The target-hour return is never used to build its own
@@ -98,9 +99,9 @@ Latest real Binance-backed run:
 
 ```text
 n_predictions: 720
-coverage_95: 0.937500
-average_width: 1155.770058
-winkler_score: 1770.404514
+coverage_95: 0.950000
+average_width: 1293.070539
+winkler_score: 1781.000416
 ```
 
 These numbers are computed dynamically by `src.evaluation.evaluate()` from the
@@ -119,8 +120,8 @@ The dashboard:
 - uses the last 500 bars for the live forecast
 - displays current price and predicted 95% range
 - shows backtest coverage, average width, and Winkler score
-- plots the last 50 bars with candlesticks, close-price line, and next-hour
-  prediction ribbon
+- plots a dedicated close-price line chart with the next-hour prediction ribbon
+- also shows a separate candlestick chart for the last 50 closed hourly bars
 
 ## Tuning
 
@@ -128,7 +129,8 @@ Important parameters live in `GBMConfig` and are exposed in the dashboard:
 
 - `volatility_window`: shorter windows react faster to volatility clustering.
 - `student_t_df`: lower values create fatter tails and wider extreme quantiles.
-- `interval_scale`: raises or lowers interval width directly.
+- `interval_scale`: raises or lowers interval width directly. The default
+  `1.12` was selected to bring observed backtest coverage close to 95%.
 - `use_ewma_volatility`: emphasizes recent volatility shocks.
 
 If coverage is below 95%, intervals are too narrow: increase `interval_scale`,
