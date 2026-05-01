@@ -79,10 +79,13 @@ def simulate_gbm_next_hour(
         raise ValueError("student_t_df must be greater than 2 for finite variance")
 
     rng = np.random.default_rng(config.random_seed)
+    # Student-t shocks preserve the GBM structure while allowing fatter tails
+    # than a normal distribution, which is important for BTC jumps.
     shocks = rng.standard_t(df=config.student_t_df, size=config.n_paths)
     shocks *= np.sqrt((config.student_t_df - 2.0) / config.student_t_df)
     shocks *= config.interval_scale
 
+    # One-hour GBM step in log-price space.
     next_log_price = np.log(current_price) + drift + volatility * shocks
     return np.exp(next_log_price)
 

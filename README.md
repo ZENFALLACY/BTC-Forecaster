@@ -1,24 +1,31 @@
-# BTCUSDT Next-Hour Prediction with GBM
+# BTCUSDT Next-Hour Forecasting with GBM
 
-This project forecasts a 95% price range for the next BTCUSDT hourly close using
-Geometric Brownian Motion (GBM), recent volatility, Student-t fat-tail shocks,
-and Monte Carlo simulation.
+This repository is a challenge-ready Bitcoin forecasting system for the
+AlphaI x Polaris "Predict Bitcoin's Next Hour" challenge. It predicts a 95%
+range for the next BTCUSDT hourly close, evaluates the range with a strict
+walk-forward backtest, and presents the live forecast in a Streamlit dashboard.
 
-It was built for the AlphaI x Polaris Bitcoin Next-Hour Prediction challenge,
-with emphasis on:
+## Live Dashboard
 
-- strict no-lookahead rolling backtesting
-- dynamic coverage, width, and Winkler metrics
-- simple Streamlit dashboard
-- clean modular Python code
+Run locally:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+Public dashboard URL:
+
+```text
+Add your Streamlit Community Cloud URL here after deployment.
+```
 
 ## Project Structure
 
 ```text
 src/
-  data_loader.py       # Binance Vision API fetch and kline parsing
+  data_loader.py       # Binance Vision API fetch and closed-candle parsing
   gbm_model.py         # GBM model, rolling volatility, Student-t simulation
-  backtest.py          # rolling no-leakage backtest
+  backtest.py          # strict walk-forward backtest
   evaluation.py        # evaluate() metrics function
 dashboard/
   app.py               # Streamlit dashboard
@@ -31,25 +38,107 @@ streamlit_app.py       # Streamlit entrypoint
 
 ## Method
 
-The model uses hourly BTCUSDT close prices from:
+Data comes from Binance Vision's public no-key endpoint:
 
 ```text
 https://data-api.binance.vision/api/v3/klines
 ```
 
-For each prediction time `t`:
+The model is a one-step Geometric Brownian Motion simulator:
 
-1. Compute close-to-close log returns using only data available up to `t`.
-2. Estimate drift from recent mean log returns.
-3. Estimate volatility from a rolling recent window, default 50 hourly returns.
-4. Draw 10,000 standardized Student-t shocks to capture fat tails.
-5. Simulate one-hour GBM terminal prices.
-6. Apply a calibrated interval scale of `1.12`.
-7. Use the 2.5% and 97.5% quantiles as the 95% prediction interval.
+1. Fetch closed BTCUSDT 1-hour candles.
+2. Compute close-to-close log returns.
+3. Estimate drift from recent mean log returns.
+4. Estimate volatility from a rolling recent window, default 50 hourly returns.
+5. Draw 10,000 standardized Student-t shocks for fat tails.
+6. Simulate next-hour prices in log-price space.
+7. Apply calibrated interval scale `1.12`.
+8. Return the 2.5% and 97.5% quantiles as the 95% prediction interval.
 
-The backtest is walk-forward. At row `i`, the model sees only rows `0..i` and is
-scored against row `i+1`. The target-hour return is never used to build its own
-forecast.
+The rolling volatility window is important because BTC volatility clusters:
+quiet hours tend to follow quiet hours, and violent hours tend to follow violent
+hours. The Student-t distribution is important because BTC has more extreme
+moves than a normal model would expect.
+
+## Backtest Design
+
+The backtest uses strict walk-forward validation with no lookahead bias.
+
+At prediction step `i`:
+
+- the model receives only rows `0..i`
+- it predicts the range for row `i+1`
+- row `i+1` is revealed only after the forecast is produced
+- the forecast is scored against the actual next hourly close
+
+This produces 720 scored predictions while using extra warmup history for the
+rolling volatility estimate.
+
+Run:
+
+```bash
+python -m src.backtest
+```
+
+Outputs:
+
+```text
+results/backtest_results.jsonl
+backtest_results.jsonl
+```
+
+Each JSONL record includes the challenge-required fields:
+
+```json
+{"timestamp":"2026-04-30T00:59:59.999000+00:00","predicted_lower":93200.12,"predicted_upper":95850.44,"actual_price":94401.8}
+```
+
+## Backtest Results
+
+Latest Binance-backed run:
+
+```text
+n_predictions: 720
+coverage_95: 0.950000
+average_width: 1293.070539
+winkler_score: 1781.000416
+```
+
+Metrics are computed dynamically by `src.evaluation.evaluate()` from the saved
+predictions. They are not hardcoded.
+
+Metric interpretation:
+
+- `coverage_95`: fraction of actual prices inside the predicted 95% interval.
+  It should be close to `0.95`.
+- `average_width`: average prediction range width in USDT. Narrower is better
+  when coverage remains calibrated.
+- `winkler_score`: interval score that rewards narrow covered intervals and
+  penalizes misses. Lower is better.
+
+## Dashboard
+
+The Streamlit dashboard shows:
+
+- top-line backtest metrics: coverage, average width, Winkler score
+- current BTCUSDT price
+- predicted lower and upper bounds for the next hour
+- bold close-price chart with shaded 95% prediction ribbon
+- dashed lower and upper prediction bounds
+- marker for current price and median forecast
+- recent backtest visualization: actual close vs predicted range
+- candlestick chart for the last 50 closed hourly bars
+
+## Key Insights
+
+- Prediction intervals widen during high volatility because recent rolling
+  volatility is the main driver of range width.
+- The model adapts to current market conditions instead of using one fixed
+  historical volatility estimate.
+- Student-t shocks help capture BTC's fat-tailed behavior and reduce
+  underestimation of extreme moves.
+- The interval scale was calibrated to bring observed walk-forward coverage
+  close to the 95% target.
 
 ## Setup
 
@@ -66,77 +155,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Run Backtest
+## Deploy on Streamlit Community Cloud
 
-```bash
-python -m src.backtest
-```
-
-This fetches enough closed BTCUSDT 1-hour bars to provide warmup history plus
-720 scored predictions. It writes:
+1. Push this repository to GitHub.
+2. Create a new Streamlit Community Cloud app.
+3. Select this repository and branch.
+4. Set the entrypoint to:
 
 ```text
-results/backtest_results.jsonl
-backtest_results.jsonl
+streamlit_app.py
 ```
 
-The root-level copy is included because the challenge brief asks for a file
-named exactly `backtest_results.jsonl`; the `results/` copy keeps generated
-artifacts organized.
-
-Each JSONL row includes the required challenge fields:
-
-```json
-{"timestamp":"2026-04-30T00:59:59.999000+00:00","predicted_lower":93200.12,"predicted_upper":95850.44,"actual_price":94401.8}
-```
-
-Additional diagnostic fields are also included, such as interval width, drift,
-volatility, and target timestamp.
-
-## Backtest Results
-
-Latest real Binance-backed run:
-
-```text
-n_predictions: 720
-coverage_95: 0.950000
-average_width: 1293.070539
-winkler_score: 1781.000416
-```
-
-These numbers are computed dynamically by `src.evaluation.evaluate()` from the
-saved predictions. They are not hardcoded in the code. Results will change as
-new hourly BTCUSDT bars become available.
-
-## Run Dashboard
-
-```bash
-streamlit run streamlit_app.py
-```
-
-The dashboard:
-
-- fetches the latest closed BTCUSDT hourly bars
-- uses the last 500 bars for the live forecast
-- displays current price and predicted 95% range
-- shows backtest coverage, average width, and Winkler score
-- plots a dedicated close-price line chart with the next-hour prediction ribbon
-- also shows a separate candlestick chart for the last 50 closed hourly bars
-
-## Tuning
-
-Important parameters live in `GBMConfig` and are exposed in the dashboard:
-
-- `volatility_window`: shorter windows react faster to volatility clustering.
-- `student_t_df`: lower values create fatter tails and wider extreme quantiles.
-- `interval_scale`: raises or lowers interval width directly. The default
-  `1.12` was selected to bring observed backtest coverage close to 95%.
-- `use_ewma_volatility`: emphasizes recent volatility shocks.
-
-If coverage is below 95%, intervals are too narrow: increase `interval_scale`,
-lower `student_t_df`, or enable EWMA volatility. If coverage is far above 95%,
-intervals are probably too wide.
-
-## Notes
-
-All challenge code lives in `src/` and `dashboard/`.
+5. Deploy and paste the public URL into the challenge submission form.
