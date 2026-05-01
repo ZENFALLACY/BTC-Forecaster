@@ -1,37 +1,55 @@
-# Bitcoin Next-Hour Prediction (GBM)
+# BTCUSDT Next-Hour Prediction with GBM
 
-Production-style Python implementation for forecasting a 95% one-hour-ahead
-BTCUSDT price interval with Geometric Brownian Motion, Monte Carlo simulation,
-rolling volatility, and Student-t innovations.
+This project forecasts a 95% price range for the next BTCUSDT hourly close using
+Geometric Brownian Motion (GBM), recent volatility, Student-t fat-tail shocks,
+and Monte Carlo simulation.
 
-## What It Does
+It was built for the AlphaI x Polaris Bitcoin Next-Hour Prediction challenge,
+with emphasis on:
 
-- Fetches hourly BTCUSDT klines from Binance Vision:
-  `https://data-api.binance.vision/api/v3/klines`
-- Estimates log-return drift and recent volatility using only data available at
-  prediction time.
-- Simulates 10,000 one-hour GBM paths with standardized Student-t shocks.
-- Produces 2.5% and 97.5% quantiles as the 95% prediction range.
-- Runs a strict walk-forward backtest and writes `backtest_results.jsonl`.
-- Serves a Streamlit dashboard with current forecast, backtest metrics, chart,
-  and optional live prediction persistence.
+- strict no-lookahead rolling backtesting
+- dynamic coverage, width, and Winkler metrics
+- simple Streamlit dashboard
+- clean modular Python code
 
 ## Project Structure
 
 ```text
-btc_forecaster/
-├── data.py          # Binance API fetching and kline parsing
-├── model.py         # GBM calibration, Student-t simulation, tuning hooks
-├── backtest.py      # no-lookahead walk-forward backtest
-├── evaluate.py      # coverage, width, Winkler score
-├── app.py           # Streamlit dashboard
-├── utils.py         # JSONL and timestamp helpers
-├── __init__.py
+src/
+  data_loader.py       # Binance Vision API fetch and kline parsing
+  gbm_model.py         # GBM model, rolling volatility, Student-t simulation
+  backtest.py          # rolling no-leakage backtest
+  evaluation.py        # evaluate() metrics function
+dashboard/
+  app.py               # Streamlit dashboard
+results/
+  backtest_results.jsonl
 requirements.txt
-streamlit_app.py     # Streamlit Cloud-friendly entrypoint
+streamlit_app.py       # Streamlit entrypoint
 ```
 
-## Install
+## Method
+
+The model uses hourly BTCUSDT close prices from:
+
+```text
+https://data-api.binance.vision/api/v3/klines
+```
+
+For each prediction time `t`:
+
+1. Compute close-to-close log returns using only data available up to `t`.
+2. Estimate drift from recent mean log returns.
+3. Estimate volatility from a rolling recent window, default 50 hourly returns.
+4. Draw 10,000 standardized Student-t shocks to capture fat tails.
+5. Simulate one-hour GBM terminal prices.
+6. Use the 2.5% and 97.5% quantiles as the 95% prediction interval.
+
+The backtest is walk-forward. At row `i`, the model sees only rows `0..i` and is
+scored against row `i+1`. The target-hour return is never used to build its own
+forecast.
+
+## Setup
 
 ```bash
 python -m venv .venv
@@ -39,37 +57,48 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-On macOS/Linux, activate with:
+On macOS or Linux:
 
 ```bash
 source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ## Run Backtest
 
 ```bash
-python -m btc_forecaster.backtest
+python -m src.backtest
 ```
 
-This fetches about 720 hourly bars, walks forward one hour at a time, and saves
-records like:
-
-```json
-{"timestamp":"2026-04-29T23:59:59.999000+00:00","lower":92850.12,"upper":96210.44,"actual":94401.80,"covered":true}
-```
-
-Example terminal output:
+This fetches about 720 BTCUSDT 1-hour bars and writes:
 
 ```text
-Backtest metrics
-n_predictions: 669
-coverage_95: 0.947683
-avg_width: 3188.421503
-winkler_score: 4210.667321
-target_coverage: 0.950000
+results/backtest_results.jsonl
 ```
 
-Actual values will change with market conditions and tuning parameters.
+Each JSONL row includes the required challenge fields:
+
+```json
+{"timestamp":"2026-04-30T00:59:59.999000+00:00","predicted_lower":93200.12,"predicted_upper":95850.44,"actual_price":94401.8}
+```
+
+Additional diagnostic fields are also included, such as interval width, drift,
+volatility, and target timestamp.
+
+## Backtest Results
+
+Latest real Binance-backed run:
+
+```text
+n_predictions: 669
+coverage_95: 0.934230
+average_width: 1133.051176
+winkler_score: 1761.448365
+```
+
+These numbers are computed dynamically by `src.evaluation.evaluate()` from the
+saved predictions. They are not hardcoded in the code. Results will change as
+new hourly BTCUSDT bars become available.
 
 ## Run Dashboard
 
@@ -77,36 +106,28 @@ Actual values will change with market conditions and tuning parameters.
 streamlit run streamlit_app.py
 ```
 
-The dashboard fetches recent Binance data, computes the current next-hour range,
-runs a cached backtest, and optionally writes `prediction_history.jsonl`.
+The dashboard:
 
-## Streamlit Deployment
+- fetches the latest BTCUSDT hourly bars
+- uses the last 500 bars for the live forecast
+- displays current price and predicted 95% range
+- shows backtest coverage, average width, and Winkler score
+- plots the last 50 bars with the next-hour prediction ribbon
 
-1. Push this repository to GitHub.
-2. In Streamlit Community Cloud, create a new app.
-3. Set the entrypoint to `streamlit_app.py`.
-4. Ensure `requirements.txt` is included.
-5. Deploy.
+## Tuning
 
-## Tuning Notes
+Important parameters live in `GBMConfig` and are exposed in the dashboard:
 
-Key parameters are exposed in `GBMConfig` and the dashboard sidebar:
+- `volatility_window`: shorter windows react faster to volatility clustering.
+- `student_t_df`: lower values create fatter tails and wider extreme quantiles.
+- `interval_scale`: raises or lowers interval width directly.
+- `use_ewma_volatility`: emphasizes recent volatility shocks.
 
-- `vol_window`: shorter windows react faster to volatility clustering; longer
-  windows are smoother but can underreact.
-- `use_ewma_vol`: emphasizes recent large moves and often improves coverage in
-  clustered volatility regimes.
-- `student_t_df`: lower degrees of freedom create fatter tails and wider tail
-  quantiles.
-- `interval_scale`: simple calibration multiplier. Increase it if coverage is
-  below 95%; decrease it if coverage is far above 95%.
+If coverage is below 95%, intervals are too narrow: increase `interval_scale`,
+lower `student_t_df`, or enable EWMA volatility. If coverage is far above 95%,
+intervals are probably too wide.
 
-For honest model selection, tune parameters on one validation period and report
-final metrics on a separate period.
+## Notes
 
-## No-Lookahead Design
-
-The backtest loop calls `predict_interval(data.iloc[:i+1])` and only then scores
-against `close[i+1]`. Rolling volatility and drift are calculated from historical
-returns inside that sliced dataframe, so the realized target-hour return is never
-used for its own prediction.
+The older `btc_forecaster/` package is retained for compatibility, but the
+challenge-ready implementation is in `src/` and `dashboard/`.

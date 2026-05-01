@@ -1,30 +1,15 @@
-"""Binance Vision API data fetching."""
+"""BTCUSDT hourly data loading from Binance Vision."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import requests
 
 
 BINANCE_KLINES_URL = "https://data-api.binance.vision/api/v3/klines"
-
-
-class BinanceDataError(RuntimeError):
-    """Raised when Binance data cannot be fetched or parsed."""
-
-
-@dataclass(frozen=True)
-class KlineRequest:
-    symbol: str = "BTCUSDT"
-    interval: str = "1h"
-    limit: int = 720
-    timeout: float = 15.0
-
-
 KLINE_COLUMNS = [
     "open_time",
     "open",
@@ -41,42 +26,36 @@ KLINE_COLUMNS = [
 ]
 
 
-def fetch_klines(
+class DataLoadError(RuntimeError):
+    """Raised when Binance data cannot be loaded."""
+
+
+def fetch_btcusdt_klines(
+    limit: int = 720,
     symbol: str = "BTCUSDT",
     interval: str = "1h",
-    limit: int = 720,
     timeout: float = 15.0,
-    session: requests.Session | None = None,
 ) -> pd.DataFrame:
-    """Fetch Binance klines and return a clean OHLCV dataframe.
-
-    Binance returns the most recent closed and possibly in-progress candle. The
-    model can use the latest available close for live prediction; backtests rely
-    only on historical rows already present in the dataframe.
-    """
-    params: dict[str, Any] = {"symbol": symbol, "interval": interval, "limit": limit}
-    client = session or requests.Session()
-
+    """Fetch hourly BTCUSDT bars from Binance Vision."""
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
     try:
-        response = client.get(BINANCE_KLINES_URL, params=params, timeout=timeout)
+        response = requests.get(BINANCE_KLINES_URL, params=params, timeout=timeout)
         response.raise_for_status()
         payload = response.json()
     except requests.RequestException as exc:
-        raise BinanceDataError(f"Failed to fetch Binance klines: {exc}") from exc
+        raise DataLoadError(f"Binance request failed: {exc}") from exc
     except ValueError as exc:
-        raise BinanceDataError("Binance response was not valid JSON") from exc
+        raise DataLoadError("Binance returned invalid JSON") from exc
 
     if not isinstance(payload, list) or not payload:
-        raise BinanceDataError("Binance returned no kline data")
-
+        raise DataLoadError("Binance returned no kline rows")
     return parse_klines(payload)
 
 
 def parse_klines(payload: list[list[Any]]) -> pd.DataFrame:
-    """Convert raw Binance kline payload into typed OHLCV rows."""
+    """Normalize Binance kline rows into typed, ascending OHLCV data."""
     frame = pd.DataFrame(payload, columns=KLINE_COLUMNS)
-
-    numeric_cols = [
+    numeric_columns = [
         "open",
         "high",
         "low",
@@ -87,18 +66,19 @@ def parse_klines(payload: list[list[Any]]) -> pd.DataFrame:
         "taker_buy_base_volume",
         "taker_buy_quote_volume",
     ]
-    for column in numeric_cols:
+    for column in numeric_columns:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
 
     frame["open_time"] = pd.to_datetime(frame["open_time"], unit="ms", utc=True)
     frame["close_time"] = pd.to_datetime(frame["close_time"], unit="ms", utc=True)
-    frame = frame.drop(columns=["ignore"]).dropna(subset=["open", "high", "low", "close"])
+    frame = frame.drop(columns=["ignore"])
+    frame = frame.dropna(subset=["open", "high", "low", "close"])
     frame = frame.sort_values("open_time").drop_duplicates("open_time").reset_index(drop=True)
     return frame
 
 
 def add_log_returns(data: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of data with close-to-close log returns."""
+    """Return a copy with close-to-close log returns."""
     frame = data.copy()
     frame["log_return"] = np.log(frame["close"] / frame["close"].shift(1))
     return frame

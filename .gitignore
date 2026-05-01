@@ -4,5 +4,4 @@ __pycache__/
 venv/
 .env
 .streamlit/secrets.toml
-backtest_results.jsonl
 prediction_history.jsonl
