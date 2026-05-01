@@ -47,42 +47,38 @@ def target_timestamp(prediction: Prediction) -> pd.Timestamp:
     return prediction.timestamp + pd.Timedelta(hours=1)
 
 
-def build_chart(data: pd.DataFrame, prediction: Prediction) -> go.Figure:
+def build_prediction_chart(data: pd.DataFrame, prediction: Prediction) -> go.Figure:
     chart_data = data.tail(50)
     last_time = pd.Timestamp(chart_data["close_time"].iloc[-1])
     next_time = target_timestamp(prediction)
 
     fig = go.Figure()
     fig.add_trace(
-        go.Candlestick(
-            x=chart_data["close_time"],
-            open=chart_data["open"],
-            high=chart_data["high"],
-            low=chart_data["low"],
-            close=chart_data["close"],
-            name="BTCUSDT",
-        )
-    )
-    fig.add_trace(
         go.Scatter(
             x=chart_data["close_time"],
             y=chart_data["close"],
             mode="lines",
-            line=dict(color="#111827", width=1.5),
+            line=dict(color="#111827", width=2.5),
             name="Close price",
         )
     )
     fig.add_trace(
         go.Scatter(
-            x=[last_time, next_time, next_time, last_time],
-            y=[
-                prediction.predicted_lower,
-                prediction.predicted_lower,
-                prediction.predicted_upper,
-                prediction.predicted_upper,
-            ],
-            fill="toself",
-            fillcolor="rgba(30, 136, 229, 0.18)",
+            x=[last_time, next_time],
+            y=[prediction.predicted_upper, prediction.predicted_upper],
+            mode="lines",
+            line=dict(color="rgba(30, 136, 229, 0)"),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[last_time, next_time],
+            y=[prediction.predicted_lower, prediction.predicted_lower],
+            mode="lines",
+            fill="tonexty",
+            fillcolor="rgba(30, 136, 229, 0.24)",
             line=dict(color="rgba(30, 136, 229, 0)"),
             name="95% prediction range",
             hoverinfo="skip",
@@ -98,11 +94,35 @@ def build_chart(data: pd.DataFrame, prediction: Prediction) -> go.Figure:
         )
     )
     fig.update_layout(
-        height=520,
+        height=430,
         template="plotly_white",
-        margin=dict(l=20, r=20, t=30, b=20),
-        xaxis_rangeslider_visible=False,
+        margin=dict(l=20, r=20, t=40, b=20),
+        title="Close Price With Next-Hour 95% Prediction Range",
         legend=dict(orientation="h", y=1.02, x=1, xanchor="right", yanchor="bottom"),
+    )
+    fig.update_yaxes(title="USDT")
+    return fig
+
+
+def build_candlestick_chart(data: pd.DataFrame) -> go.Figure:
+    chart_data = data.tail(50)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Candlestick(
+            x=chart_data["close_time"],
+            open=chart_data["open"],
+            high=chart_data["high"],
+            low=chart_data["low"],
+            close=chart_data["close"],
+            name="BTCUSDT",
+        )
+    )
+    fig.update_layout(
+        height=360,
+        template="plotly_white",
+        margin=dict(l=20, r=20, t=40, b=20),
+        title="Last 50 Closed Hourly Candles",
+        xaxis_rangeslider_visible=False,
     )
     fig.update_yaxes(title="USDT")
     return fig
@@ -116,7 +136,7 @@ def main() -> None:
         st.header("Model settings")
         volatility_window = st.slider("Volatility window", 20, 200, 50, 5)
         student_t_df = st.slider("Student-t df", 3.0, 30.0, 6.0, 0.5)
-        interval_scale = st.slider("Interval scale", 0.5, 2.0, 1.0, 0.05)
+        interval_scale = st.slider("Interval scale", 0.5, 2.0, 1.12, 0.01)
         use_ewma = st.toggle("EWMA volatility", value=False)
 
     try:
@@ -147,7 +167,8 @@ def main() -> None:
     m2.metric("Average width", f"${metrics['average_width']:,.2f}")
     m3.metric("Winkler score", f"{metrics['winkler_score']:,.2f}")
 
-    st.plotly_chart(build_chart(data, prediction), use_container_width=True)
+    st.plotly_chart(build_prediction_chart(data, prediction), use_container_width=True)
+    st.plotly_chart(build_candlestick_chart(data), use_container_width=True)
 
 
 if __name__ == "__main__":

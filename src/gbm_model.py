@@ -19,7 +19,7 @@ class GBMConfig:
     student_t_df: float = 6.0
     use_ewma_volatility: bool = False
     ewma_span: int = 50
-    interval_scale: float = 1.0
+    interval_scale: float = 1.12
     random_seed: int | None = 42
     min_returns: int = 20
 
