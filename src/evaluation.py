@@ -12,7 +12,12 @@ def winkler_interval_score(
     predicted_upper: float,
     alpha: float = 0.05,
 ) -> float:
-    """Compute the Winkler score for one prediction interval."""
+    """Compute the Winkler score for one prediction interval.
+
+    Covered observations score the interval width. Misses receive an additional
+    distance penalty, so lower scores reward intervals that are both tight and
+    well calibrated.
+    """
     width = predicted_upper - predicted_lower
     if actual_price < predicted_lower:
         return float(width + (2.0 / alpha) * (predicted_lower - actual_price))
@@ -22,7 +27,12 @@ def winkler_interval_score(
 
 
 def evaluate(predictions: pd.DataFrame, confidence: float = 0.95) -> dict[str, float]:
-    """Compute coverage, average width, and Winkler score dynamically."""
+    """Compute coverage, average width, and Winkler score dynamically.
+
+    coverage_95 should be near 0.95 for a calibrated 95% interval. Values below
+    0.95 suggest overconfidence; values far above 0.95 suggest intervals are too
+    wide to be useful.
+    """
     required = {"predicted_lower", "predicted_upper", "actual_price"}
     missing = required.difference(predictions.columns)
     if missing:

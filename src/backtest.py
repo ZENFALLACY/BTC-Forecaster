@@ -37,8 +37,10 @@ def run_backtest(
 ) -> tuple[pd.DataFrame, dict[str, float]]:
     """Run a rolling backtest over roughly 720 scored hourly predictions.
 
-    At each step i, the model sees rows up to and including i, predicts the
-    next close, then compares against row i+1. This prevents lookahead bias.
+    No-peeking rule:
+    at index i, the model receives only rows 0..i. It predicts the next hourly
+    close, then the backtest reveals row i+1 only for scoring. The realized
+    target return is never available during calibration.
     """
     cfg = config or GBMConfig()
     train_bars = min_train_bars or max(cfg.volatility_window + 1, cfg.min_returns + 1)
@@ -52,7 +54,9 @@ def run_backtest(
     records: list[dict[str, object]] = []
     first_prediction_index = max(train_bars - 1, len(frame) - target_predictions - 1)
     for i in range(first_prediction_index, len(frame) - 1):
+        # Strict walk-forward slice: this is the only data the model can see.
         history = frame.iloc[: i + 1]
+        # The next row is held out until after the forecast is produced.
         target = frame.iloc[i + 1]
         forecast = predict_next_hour(history, cfg)
 
