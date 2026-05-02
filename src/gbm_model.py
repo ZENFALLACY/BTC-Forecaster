@@ -125,3 +125,74 @@ def predict_next_hour(data: pd.DataFrame, config: GBMConfig | None = None) -> Pr
         drift=drift,
         volatility=volatility,
     )
+
+
+# ---------------------------------------------------------------------------
+# Normal-distribution variants for model comparison
+# ---------------------------------------------------------------------------
+
+
+def simulate_gbm_next_hour_normal(
+    current_price: float,
+    drift: float,
+    volatility: float,
+    config: GBMConfig,
+) -> np.ndarray:
+    """Simulate next-hour prices using Normal (Gaussian) shocks.
+
+    This is the classical GBM formulation. Compared to the Student-t variant
+    it produces thinner tails, which tends to underestimate extreme BTC moves.
+    """
+    if current_price <= 0:
+        raise ValueError("current_price must be positive")
+
+    rng = np.random.default_rng(config.random_seed)
+    # Normal shocks already have unit variance — no rescaling needed.
+    shocks = rng.standard_normal(size=config.n_paths)
+    shocks *= config.interval_scale
+
+    next_log_price = np.log(current_price) + drift + volatility * shocks
+    return np.exp(next_log_price)
+
+
+def predict_next_hour_normal(
+    data: pd.DataFrame, config: GBMConfig | None = None
+) -> Prediction:
+    """Predict a 95% interval using GBM with Normal shocks instead of Student-t.
+
+    Identical calibration pipeline as ``predict_next_hour`` — only the shock
+    distribution differs, enabling a controlled comparison.
+    """
+    cfg = config or GBMConfig()
+    if "close" not in data.columns:
+        raise ValueError("data must include a 'close' column")
+
+    close = pd.to_numeric(data["close"], errors="coerce").dropna()
+    returns = compute_log_returns(close)
+    if len(returns) < cfg.min_returns:
+        raise ValueError(f"Need at least {cfg.min_returns} log returns, got {len(returns)}")
+
+    current_price = float(close.iloc[-1])
+    drift = estimate_drift(returns, cfg)
+    volatility = estimate_volatility(returns, cfg)
+    simulated_prices = simulate_gbm_next_hour_normal(current_price, drift, volatility, cfg)
+
+    alpha = 1.0 - cfg.confidence
+    lower, median, upper = np.quantile(
+        simulated_prices,
+        [alpha / 2.0, 0.5, 1.0 - alpha / 2.0],
+    )
+
+    timestamp_column = "close_time" if "close_time" in data.columns else "open_time"
+    timestamp = pd.Timestamp(data[timestamp_column].iloc[-1])
+    timestamp = timestamp.tz_localize("UTC") if timestamp.tzinfo is None else timestamp.tz_convert("UTC")
+
+    return Prediction(
+        timestamp=timestamp,
+        current_price=current_price,
+        predicted_lower=float(lower),
+        predicted_upper=float(upper),
+        predicted_median=float(median),
+        drift=drift,
+        volatility=volatility,
+    )
